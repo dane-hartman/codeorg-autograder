@@ -624,8 +624,11 @@ function gradeRows_(rowNums) {
         return;
       }
 
-      // Check cache
-      var cacheKey = 'grade:' + sha256_(levelId + '|' + fetched.src);
+      // Check cache (key includes criteria so edits to descriptions/points bust the cache)
+      var critFingerprint = crits.map(function(c) {
+        return c.CriterionID + ':' + c.Points + ':' + c.Description;
+      }).join('\n');
+      var cacheKey = 'grade:' + sha256_(levelId + '|' + critFingerprint + '|' + fetched.src);
       var cached = getGradeCache_(cacheKey);
       if (cached) {
         try {

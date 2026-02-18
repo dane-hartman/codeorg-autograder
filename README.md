@@ -101,7 +101,7 @@ All menu actions operate on the **Submissions** sheet — never on Form Response
 | Menu Item | What it does | Use this when… |
 |---|---|---|
 | **Initial Setup…** | Creates Submissions, Levels, Criteria, and Grade View sheets (additive — won't overwrite existing) | First-time setup, or adding a new period mid-year |
-| ↳ *Reset Everything* | Deletes ALL autograder sheets and data (inside the Setup dialog) | Starting a fresh semester, or something is badly broken |
+| ↳ *Reset Everything* | Deletes Submissions, Levels, Criteria, and all Grade View P# sheets. Form Responses 1 is not affected. (Inside the Setup dialog) | Starting a fresh semester, or something is badly broken |
 | **Grade New Submissions** | Imports any new form responses into Submissions, then grades all ungraded rows | Daily workflow — checking in on student progress |
 | **Re-grade Selected Rows** | Re-grades only the rows you highlight in Submissions | You edited criteria and want to test the change on a few rows |
 | **Re-grade All Rows…** | Re-grades every submission (slow, uses API credits) | You changed criteria and want to recalculate all scores |
@@ -198,7 +198,7 @@ In the **Levels** sheet, the **Model** column lets you override the default mode
 2. `onFormSubmit` trigger fires → copies data to the Submissions sheet
 3. Channel ID is extracted from the share URL
 4. Student source code is fetched from `studio.code.org`
-5. A cache key (SHA-256 of LevelID + source) is checked
+5. A cache key (SHA-256 of LevelID + criteria + source code) is checked
 6. If not cached: rubric criteria are sent to the LLM with the source code
 7. LLM returns JSON with pass/fail for each criterion
 8. Score is calculated and written to the row
@@ -233,6 +233,7 @@ All criteria use `llm_check` — each criterion is sent to the LLM along with th
 | **Submissions aren't auto-importing** | Verify the `onFormSubmit` trigger is set up (Extensions → Apps Script → Triggers). Use **Grade New Submissions** to catch up. |
 | **Students not receiving emails** | Check that the Email column has valid addresses and EmailedAt is blank. Rows with `Status = Error` are intentionally skipped to avoid emailing error text to students. Gmail has daily sending limits (~100/day consumer, ~1,500/day Workspace). |
 | **"Please switch to the Submissions sheet"** | Selection-based actions (Re-grade Selected, Email Selected) require you to be on the Submissions sheet with rows highlighted |
+| **Re-grading doesn't reflect my criteria edits** | Fixed in v2.2 — the cache key now includes criteria content. If you're on an older version, wait up to 6 hours for the cache to expire, or run **Reset Everything** and re-import. |
 
 ---
 

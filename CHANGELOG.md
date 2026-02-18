@@ -20,6 +20,10 @@ All notable changes to the Game Lab Autograder.
 - **README overhauled** — new Step 3 "Import Criteria" in Quick Setup, Menu Reference table now includes a "Use this when…" column, new "Rate Limit Handling" section, expanded Troubleshooting, updated project structure.
 - **CONTRIBUTING.md rewritten** — criteria workflow section explains the CSV-import approach, no more dual-maintenance instructions. Contributing criteria is now as simple as editing a CSV file.
 
+### Fixed
+- **Cache key now includes criteria content** — previously, the grading cache key was based only on LevelID + student source code. Editing a criterion description or points on the Criteria sheet and re-grading would return the old cached result. The key now includes a fingerprint of all criteria (CriterionID, Points, Description), so any criteria edit automatically busts the cache.
+- **Reset Everything confirmation dialog** — now lists exactly which sheets are deleted (Submissions, Levels, Criteria, Grade View P#) and explicitly notes that Form Responses 1 is not affected.
+
 ## [2.1.0] — 2026-02-17
 
 ### Changed
