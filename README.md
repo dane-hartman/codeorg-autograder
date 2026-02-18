@@ -248,11 +248,7 @@ game-lab-autograder/
 ├── CHANGELOG.md             # Version history
 ├── PLAN.md                  # Architecture & design decisions (internal)
 ├── LICENSE                  # MIT License
-├── .gitignore
-└── legacy/                  # Original v1 files (kept for reference)
-    ├── Code-legacy.gs
-    ├── autograder-google-sheet-legacy.xlsx
-    └── google-form-screenshot.png
+└── .gitignore
 ```
 
 ---
