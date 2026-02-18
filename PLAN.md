@@ -83,7 +83,7 @@ Sheets are **protected** with `setWarningOnly(true)`.
     - gradeNewRows (imports from form + grades ungraded)
     - gradeSelectedRows / gradeAllRows
     - gradeRows_ (core loop with progress toasts)
-    - runCriteria_ (local checks + LLM checks)
+    - runCriteria_ (LLM checks)
  5. LLM ENGINE
     - buildRubricPrompt_
     - geminiGrade_ / openaiGrade_

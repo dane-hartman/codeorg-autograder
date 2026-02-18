@@ -2,6 +2,24 @@
 
 All notable changes to the Game Lab Autograder.
 
+## [2.2.0] — 2026-02-18
+
+### Added
+- **Rate limit retry with backoff** — all LLM API calls now auto-retry on 429 (Too Many Requests) and 503 errors. Exponential backoff: ~2s → 4s → 8s → 16s with jitter, up to 4 retries. Handles bursts of simultaneous student submissions on the free Gemini tier.
+- **Email guard for Error rows** — automatic email flows (`onFormSubmit`, `Grade & Email All New`) skip rows with `Status = Error` to prevent sending confusing API error text to students. Manual **Email Selected Rows** still sends to all statuses.
+- **"Sync Levels from Criteria"** menu item — reads the Criteria sheet and rebuilds the Levels sheet from the unique LevelIDs found. Preserves existing Enabled/Model settings. Use after importing a new criteria CSV.
+- **`criteria/` folder** — criteria CSV files now live in their own folder, named by curriculum (e.g., `CSD-Unit3-Interactive-Animations-and-Games.csv`). Teachers and contributors can share rubric CSVs without touching `Code.gs`.
+
+### Changed
+- **Criteria are no longer embedded in `Code.gs`** — removed `getCriteriaTableCsvText_()`, `parseCriteriaTableCsv_()`, and `parseCsvText_()` (~170 lines). Teachers import criteria via Google Sheets' File → Import. This decouples rubric content from script code and eliminates the need to keep two copies in sync.
+- **Initial Setup** now creates empty Criteria and Levels sheets with headers only. The setup completion message guides teachers to import a criteria CSV and run Sync Levels.
+- **Simplified grading engine** — removed unused local check types (`code_nonempty`, `contains`, `regex_present`, `regex_absent`) from `runCriteria_()`. All criteria now go through the LLM. The `Type` column still exists on the Criteria sheet but only `llm_check` is used.
+- **Menu reorganized** — "Sync Levels from Criteria" placed in the maintenance group (next to "Test API Connection").
+- **Dedup fix for form import** — `normalizeTimestamp_()` now rounds to the nearest minute, fixing false mismatches between `e.values` strings and `getValues()` Date objects that caused "Grade New Submissions" to re-import already-graded rows.
+- **Help dialog updated** — now includes criteria import instructions and describes all menu items with "Use this when…" guidance.
+- **README overhauled** — new Step 3 "Import Criteria" in Quick Setup, Menu Reference table now includes a "Use this when…" column, new "Rate Limit Handling" section, expanded Troubleshooting, updated project structure.
+- **CONTRIBUTING.md rewritten** — criteria workflow section explains the CSV-import approach, no more dual-maintenance instructions. Contributing criteria is now as simple as editing a CSV file.
+
 ## [2.1.0] — 2026-02-17
 
 ### Changed

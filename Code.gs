@@ -51,18 +51,19 @@ SUB_HEADERS.forEach(function(h, i) { SC[h] = i; });
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Autograder')
-    .addItem('Initial Setup\u2026',         'showSetupDialog')
+    .addItem('Initial Setup\u2026',             'showSetupDialog')
     .addSeparator()
-    .addItem('Grade New Submissions',        'gradeNewRows')
-    .addItem('Re-grade Selected Rows',       'gradeSelectedRows')
-    .addItem('Re-grade All Rows\u2026',      'gradeAllRows')
+    .addItem('Grade New Submissions',            'gradeNewRows')
+    .addItem('Re-grade Selected Rows',           'gradeSelectedRows')
+    .addItem('Re-grade All Rows\u2026',          'gradeAllRows')
     .addSeparator()
-    .addItem('Grade & Email All New',        'gradeAndEmailAllNew')
-    .addItem('Email Selected Rows',          'emailSelectedRows')
+    .addItem('Grade & Email All New',            'gradeAndEmailAllNew')
+    .addItem('Email Selected Rows',              'emailSelectedRows')
     .addSeparator()
-    .addItem('Test API Connection',          'testAPIConnection')
+    .addItem('Sync Levels from Criteria',      'syncLevelsFromCriteria')
+    .addItem('Test API Connection',              'testAPIConnection')
     .addSeparator()
-    .addItem('Help / Setup Guide',           'showHelp')
+    .addItem('Help / Setup Guide',               'showHelp')
     .addToUi();
 }
 
@@ -139,7 +140,18 @@ function buildSetupHtml_(existingPeriods) {
     '  }).createSheetsFromSetup(periods);' +
     '}' +
     'function doReset(){' +
-    '  if(!confirm("This will DELETE all Autograder sheets and data.\\n\\nAre you sure?"))return;' +
+    '  if(!confirm("' +
+    '\u26A0\uFE0F  RESET EVERYTHING\\n\\n' +
+    'This will permanently delete the following sheets and ALL their data:\\n\\n' +
+    '  \u2022 Submissions (all grades, feedback, and status)\\n' +
+    '  \u2022 Levels\\n' +
+    '  \u2022 Criteria\\n' +
+    '  \u2022 All Grade View P# sheets\\n\\n' +
+    'The following will NOT be affected:\\n\\n' +
+    '  \u2022 Form Responses 1 (your raw form data stays intact)\\n' +
+    '  \u2022 Your Apps Script code and API keys\\n\\n' +
+    'You will need to re-run Initial Setup and re-import your Criteria CSV afterward.\\n\\n' +
+    'Are you sure you want to delete everything?"))return;' +
     '  setWorking("\u23F3 Resetting\u2026 please wait.");' +
     '  google.script.run.withSuccessHandler(function(){' +
     '    alert("All autograder sheets deleted. Re-opening setup...");' +
@@ -186,18 +198,6 @@ function createSheetsFromSetup(newPeriods) {
     lev.clear();
     var levHeaders = ['LevelID', 'LevelURL', 'Enabled', 'Model'];
     lev.getRange(1, 1, 1, levHeaders.length).setValues([levHeaders]).setFontWeight('bold');
-
-    var rubric = parseCriteriaTableCsv_();
-    var levelIds = Object.keys(rubric.byLevel).sort();
-    var levelRows = levelIds.map(function(id) {
-      return [id, levelIdToUrl_(id), true, ''];
-    });
-    if (levelRows.length) {
-      lev.getRange(2, 1, levelRows.length, 4).setValues(levelRows);
-      // Checkbox for Enabled column
-      lev.getRange(2, 3, levelRows.length, 1)
-        .insertCheckboxes();
-    }
     lev.setFrozenRows(1);
   }
 
@@ -219,10 +219,6 @@ function createSheetsFromSetup(newPeriods) {
     var critHeaders = ['LevelID', 'CriterionID', 'Points', 'Type', 'Description', 'Notes', 'Teacher Notes'];
     crit.getRange(1, 1, 1, critHeaders.length).setValues([critHeaders]).setFontWeight('bold');
     crit.setFrozenRows(1);
-    var rubric2 = parseCriteriaTableCsv_();
-    if (rubric2.rows.length) {
-      crit.getRange(2, 1, rubric2.rows.length, critHeaders.length).setValues(rubric2.rows);
-    }
   }
 
   // --- Grade View sheets ---
@@ -280,16 +276,110 @@ function createSheetsFromSetup(newPeriods) {
     for (var c = 1; c <= critCols; c++) crit.autoResizeColumn(c);
   }
 
+  var critCount = crit ? Math.max(crit.getLastRow() - 1, 0) : 0;
+  var levCount  = lev  ? Math.max(lev.getLastRow() - 1, 0)  : 0;
+
   var msg = 'Setup complete!\n\n';
   msg += '\u2022 Submissions sheet: ready\n';
-  msg += '\u2022 Levels: ' + (lev ? lev.getLastRow() - 1 : 0) + ' levels loaded\n';
-  msg += '\u2022 Criteria: ' + (crit ? crit.getLastRow() - 1 : 0) + ' rubric rows loaded\n';
+  msg += '\u2022 Levels: ' + levCount + ' level(s)\n';
+  msg += '\u2022 Criteria: ' + critCount + ' rubric row(s)\n';
   if (createdCount) msg += '\u2022 Created ' + createdCount + ' new Grade View sheet(s)\n';
   msg += '\nNext steps:\n';
-  msg += '1. Set GEMINI_API_KEY in Extensions \u2192 Apps Script \u2192 Project Settings \u2192 Script Properties\n';
-  msg += '2. Use "Test API Connection" from the Autograder menu to verify\n';
-  msg += '3. See "Help / Setup Guide" for full instructions';
+  if (!critCount) {
+    msg += '1. Import a criteria CSV into the Criteria sheet:\n';
+    msg += '   File \u2192 Import \u2192 Upload \u2192 pick your CSV \u2192 "Replace current sheet"\n';
+    msg += '2. Run "Sync Levels from Criteria" from the Autograder menu\n';
+    msg += '3. Set GEMINI_API_KEY in Extensions \u2192 Apps Script \u2192 Project Settings \u2192 Script Properties\n';
+    msg += '4. Use "Test API Connection" from the Autograder menu to verify\n';
+  } else {
+    msg += '1. Set GEMINI_API_KEY in Extensions \u2192 Apps Script \u2192 Project Settings \u2192 Script Properties\n';
+    msg += '2. Use "Test API Connection" from the Autograder menu to verify\n';
+  }
+  msg += '\nSee "Help / Setup Guide" for full instructions.';
   return msg;
+}
+
+/**
+ * Rebuilds the Levels sheet from the LevelIDs found in the Criteria sheet.
+ * Adds any missing levels with Enabled=true. Preserves existing Enabled and
+ * Model settings for levels that already have a row. Does not touch
+ * Submissions or Grade View sheets.
+ *
+ * Use this after importing a new criteria CSV into the Criteria sheet.
+ */
+function syncLevelsFromCriteria() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActive();
+
+  var crit = ss.getSheetByName(SHEET_CRIT);
+  if (!crit || crit.getLastRow() < 2) {
+    ui.alert('The Criteria sheet is empty.\n\n' +
+      'Import a criteria CSV first:\n' +
+      'Go to the Criteria sheet \u2192 File \u2192 Import \u2192 Upload \u2192 ' +
+      'pick your CSV \u2192 "Replace current sheet".');
+    return;
+  }
+
+  // Collect unique LevelIDs from Criteria
+  var critData = crit.getDataRange().getValues();
+  var critHead = headers_(critData[0]);
+  if (critHead.LevelID === undefined) {
+    ui.alert('Criteria sheet is missing a LevelID column.');
+    return;
+  }
+  var critLevels = {};
+  for (var r = 1; r < critData.length; r++) {
+    var id = String(critData[r][critHead.LevelID] || '').trim();
+    if (id) critLevels[id] = true;
+  }
+  var allLevelIds = Object.keys(critLevels).sort();
+
+  // Read existing Levels rows (preserve Enabled/Model settings)
+  var lev = ss.getSheetByName(SHEET_LEVELS);
+  var existingSettings = {};
+  if (lev && lev.getLastRow() > 1) {
+    var levData = lev.getDataRange().getValues();
+    var levHead = headers_(levData[0]);
+    for (var i = 1; i < levData.length; i++) {
+      var lid = String(levData[i][levHead.LevelID] || '').trim();
+      if (lid) {
+        existingSettings[lid] = {
+          enabled: (levHead.Enabled !== undefined) ? levData[i][levHead.Enabled] : true,
+          model:   (levHead.Model   !== undefined) ? levData[i][levHead.Model]   : ''
+        };
+      }
+    }
+  }
+
+  // Rebuild Levels sheet
+  if (!lev) lev = ss.insertSheet(SHEET_LEVELS);
+  lev.clear();
+  var levHeaders = ['LevelID', 'LevelURL', 'Enabled', 'Model'];
+  lev.getRange(1, 1, 1, levHeaders.length).setValues([levHeaders]).setFontWeight('bold');
+
+  var levelRows = allLevelIds.map(function(id) {
+    var prev = existingSettings[id];
+    return [
+      id,
+      levelIdToUrl_(id),
+      prev ? prev.enabled : true,
+      prev ? (prev.model || '') : ''
+    ];
+  });
+  if (levelRows.length) {
+    lev.getRange(2, 1, levelRows.length, 4).setValues(levelRows);
+    lev.getRange(2, 3, levelRows.length, 1).insertCheckboxes();
+  }
+  lev.setFrozenRows(1);
+  setColumnWidths_(lev, { LevelID: 200, LevelURL: 400, Enabled: 70, Model: 160 });
+
+  var newCount = allLevelIds.filter(function(id) { return !existingSettings[id]; }).length;
+
+  ui.alert('Levels synced!\n\n' +
+    '\u2022 ' + allLevelIds.length + ' level(s) from Criteria sheet\n' +
+    (newCount ? '\u2022 ' + newCount + ' new level(s) added\n' : '') +
+    '\u2022 Existing Enabled/Model settings preserved\n\n' +
+    'Submissions and Grade View sheets were not changed.');
 }
 
 /**
@@ -578,63 +668,24 @@ function gradeRows_(rowNums) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Runs all criteria (local + LLM) against the given source code.
+ * Runs all criteria against the given source code via LLM.
  * Returns { score, max, notes[] }.
  */
 function runCriteria_(src, crits, levelIdOpt) {
-  var localCrits = [], llmCrits = [];
-  crits.forEach(function(c) {
-    var t = String(c.Type || '').trim().toLowerCase();
-    if (t === 'code_nonempty' || t === 'contains' || t === 'regex_present' || t === 'regex_absent') {
-      localCrits.push(c);
-    } else if (t === 'llm_check') {
-      llmCrits.push(c);
-    }
-  });
-
   var total = crits.reduce(function(s, c) { return s + (Number(c.Points) || 0); }, 0);
+
+  var levelId = levelIdOpt || (crits[0] && crits[0].LevelID) || '';
+  var res = llmGrade_(levelId, src, crits);
+  var byId = res.byId || {};
   var got = 0, notes = [];
 
-  // --- Local checks ---
-  localCrits.forEach(function(c, i) {
-    var id   = String(c.CriterionID || ('L' + i));
-    var pts  = Number(c.Points) || 0;
-    var t    = String(c.Type || '').trim().toLowerCase();
-    var desc = String(c.Description || '');
-    var pass = false, reason = '';
-
-    if (t === 'code_nonempty') {
-      pass = !!(src && String(src).trim().length >= 10);
-      reason = pass ? '' : 'Code appears empty/too short.';
-    } else if (t === 'contains') {
-      var needle = desc.trim();
-      pass = !!(needle && String(src || '').toLowerCase().indexOf(needle.toLowerCase()) >= 0);
-      reason = pass ? '' : ('Missing text: ' + needle);
-    } else if (t === 'regex_present') {
-      try { pass = new RegExp(desc, 'i').test(String(src || '')); reason = pass ? '' : 'Pattern not found.'; }
-      catch (e) { pass = false; reason = 'Bad regex.'; }
-    } else if (t === 'regex_absent') {
-      try { pass = !new RegExp(desc, 'i').test(String(src || '')); reason = pass ? '' : 'Forbidden pattern present.'; }
-      catch (e) { pass = false; reason = 'Bad regex.'; }
-    }
-
-    if (pass) got += pts;
-    notes.push((pass ? '\u2705 ' : '\u274C ') + (c.Description || id) + (pass ? '' : (reason ? ' \u2014 ' + reason : '')));
+  crits.forEach(function(c, i) {
+    var id  = String(c.CriterionID || ('C' + i));
+    var pts = Number(c.Points) || 0;
+    var r   = byId[id] || { pass: false, reason: '' };
+    if (r.pass) got += pts;
+    notes.push((r.pass ? '\u2705 ' : '\u274C ') + (c.Description || id) + (r.pass ? '' : (r.reason ? ' \u2014 ' + r.reason : '')));
   });
-
-  // --- LLM checks ---
-  if (llmCrits.length) {
-    var levelId = levelIdOpt || (llmCrits[0] && llmCrits[0].LevelID) || '';
-    var res = llmGrade_(levelId, src, llmCrits);
-    var byId = res.byId || {};
-    llmCrits.forEach(function(c, i) {
-      var id  = String(c.CriterionID || ('C' + i));
-      var pts = Number(c.Points) || 0;
-      var r   = byId[id] || { pass: false, reason: '' };
-      if (r.pass) got += pts;
-      notes.push((r.pass ? '\u2705 ' : '\u274C ') + (c.Description || id) + (r.pass ? '' : (r.reason ? ' \u2014 ' + r.reason : '')));
-    });
-  }
 
   return { score: got, max: total, notes: notes };
 }
@@ -1011,7 +1062,10 @@ function importFormResponses_() {
   var srcHead = srcValues[0];
   var srcMap = headersSmart_(srcHead);
 
-  // Build dedup key set from Submissions
+  // Build dedup key set from Submissions.
+  // Key = timestamp(minute)|email|levelid — minute granularity avoids false
+  // mismatches caused by sub-second differences between e.values strings
+  // (used by onFormSubmit) and Date objects returned by getValues().
   var existing = {};
   var subValues = subSh.getDataRange().getValues();
   for (var i = 1; i < subValues.length; i++) {
@@ -1375,72 +1429,13 @@ function normalizeTimestamp_(v) {
     var tz = Session.getScriptTimeZone() || 'UTC';
     var d  = (v instanceof Date) ? v : new Date(v);
     if (isNaN(d.getTime())) return String(v || '').trim();
-    return Utilities.formatDate(d, tz, "yyyy-MM-dd'T'HH:mm:ss");
+    // Round to the nearest minute — sub-minute precision varies between
+    // e.values strings and getValues() Date objects, causing false mismatches.
+    d.setSeconds(0, 0);
+    return Utilities.formatDate(d, tz, "yyyy-MM-dd'T'HH:mm");
   } catch (e) {
     return String(v || '').trim();
   }
-}
-
-// ── CSV parser ──
-
-function parseCriteriaTableCsv_() {
-  var csvText = getCriteriaTableCsvText_();
-  if (!csvText || !String(csvText).trim()) throw new Error('Embedded criteria table CSV is empty.');
-
-  csvText = String(csvText).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-  var values = parseCsvText_(csvText);
-  if (!values || values.length < 2) throw new Error('criteria-table.csv has no data rows.');
-
-  var header = values[0].map(function(h) { return String(h || '').trim(); });
-  var idx = {};
-  header.forEach(function(h, i) { idx[h] = i; });
-  function col(name) { return idx[name]; }
-
-  var byLevel = {};
-  var outRows = [];
-  for (var r = 1; r < values.length; r++) {
-    var row = values[r];
-    if (!row || !row.length) continue;
-    var levelId = String(row[col('LevelID')] || '').trim();
-    if (!levelId) continue;
-    byLevel[levelId] = true;
-    outRows.push([
-      levelId,
-      String(row[col('CriterionID')] || '').trim(),
-      row[col('Points')],
-      String(row[col('Type')] || '').trim(),
-      String(row[col('Description')] || '').trim(),
-      String((col('Notes') !== undefined ? (row[col('Notes')] || '') : '') || '').trim(),
-      String((col('Teacher Notes') !== undefined ? (row[col('Teacher Notes')] || '') : '') || '').trim()
-    ]);
-  }
-  return { rows: outRows, byLevel: byLevel };
-}
-
-function parseCsvText_(text) {
-  var rows = [], row = [], field = '', inQuotes = false;
-  for (var i = 0; i < text.length; i++) {
-    var ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (i + 1 < text.length && text[i + 1] === '"') { field += '"'; i++; }
-        else inQuotes = false;
-      } else { field += ch; }
-      continue;
-    }
-    if (ch === '"') { inQuotes = true; continue; }
-    if (ch === ',') { row.push(field); field = ''; continue; }
-    if (ch === '\n') {
-      row.push(field); field = '';
-      if (row.length > 1 || (row.length === 1 && String(row[0]).trim() !== '')) rows.push(row);
-      row = []; continue;
-    }
-    field += ch;
-  }
-  row.push(field);
-  if (row.length > 1 || (row.length === 1 && String(row[0]).trim() !== '')) rows.push(row);
-  if (inQuotes) throw new Error('CSV parse error: unmatched quote.');
-  return rows;
 }
 
 // ── JSON normalization ──
@@ -1566,6 +1561,11 @@ function showHelp() {
 
     '<li><b>Run Initial Setup</b> from the Autograder menu. Check the periods you teach.</li>' +
 
+    '<li><b>Import a criteria CSV</b> into the Criteria sheet:<br>' +
+    'Go to the <b>Criteria</b> sheet \u2192 <b>File \u2192 Import \u2192 Upload</b> \u2192 pick your CSV<br>' +
+    'Set Import location to <b>"Replace current sheet"</b> \u2192 click <b>Import data</b><br>' +
+    'Then run <b>Sync Levels from Criteria</b> from the Autograder menu.</li>' +
+
     '<li><b>Set your API key:</b><br>' +
     'Go to <b>Extensions \u2192 Apps Script \u2192 \u2699\uFE0F Project Settings \u2192 Script Properties</b><br>' +
     'Add: <code>GEMINI_API_KEY</code> = your key<br>' +
@@ -1599,11 +1599,15 @@ function showHelp() {
 
     '<h3 style="margin:12px 0 6px 0;font-size:14px;">\uD83D\uDCCB Menu Reference</h3>' +
     '<ul style="margin:0 0 12px 18px;padding:0;">' +
+    '<li><b>Initial Setup\u2026</b> \u2014 creates Submissions, Levels, Criteria, and Grade View sheets. Use this the first time, or to add a new period mid-year. Won\u2019t overwrite sheets that already exist.' +
+    '<br><span style="color:#666;font-size:12px;">\u2022 <em>Reset Everything</em> (inside the dialog) permanently deletes Submissions, Levels, Criteria, and all Grade View P# sheets. <b>Form Responses 1 is not affected.</b> Use this for a fresh start at the beginning of a new semester. You\u2019ll need to re-run Initial Setup and re-import your Criteria CSV afterward.</span></li>' +
     '<li><b>Grade New Submissions</b> \u2014 imports new form responses (if any), then grades all ungraded rows in Submissions</li>' +
     '<li><b>Re-grade Selected Rows</b> \u2014 re-grades the rows you highlight in Submissions (e.g., after editing criteria)</li>' +
     '<li><b>Re-grade All Rows</b> \u2014 re-grades every row in Submissions (slow, uses API credits)</li>' +
     '<li><b>Grade & Email All New</b> \u2014 imports, grades, and emails results in one step</li>' +
     '<li><b>Email Selected Rows</b> \u2014 sends result emails for rows you highlight in Submissions</li>' +
+    '<li><b>Sync Levels from Criteria</b> \u2014 rebuilds the Levels sheet from the LevelIDs in the Criteria sheet. Use this after importing a new criteria CSV. Preserves your existing Enabled/Model settings.</li>' +
+    '<li><b>Test API Connection</b> \u2014 verifies your API key and structured JSON grading work</li>' +
     '</ul>' +
 
     '<h3 style="margin:12px 0 6px 0;font-size:14px;">\uD83D\uDCC4 Sheet Reference</h3>' +
@@ -1611,86 +1615,11 @@ function showHelp() {
     '<li><b>Submissions</b> \u2014 all student submissions and grades (the main data sheet)</li>' +
     '<li><b>Grade View P#</b> \u2014 read-only views filtered by period, sorted by level then name</li>' +
     '<li><b>Levels</b> \u2014 enable/disable levels, set per-level model overrides</li>' +
-    '<li><b>Criteria</b> \u2014 rubric criteria (auto-populated; you can edit descriptions/points)</li>' +
+    '<li><b>Criteria</b> \u2014 rubric criteria (imported from a CSV; you can edit descriptions/points directly)</li>' +
     '</ul>' +
 
     '</div>'
   ).setWidth(560).setHeight(620);
 
   SpreadsheetApp.getUi().showModalDialog(html, 'Autograder Help');
-}
-
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// 12. EMBEDDED CRITERIA CSV
-// ═══════════════════════════════════════════════════════════════════════════════
-// This mirrors criteria-table.csv so setupSheets() can populate rubrics
-// without needing an external file. Keep in sync with the repo CSV.
-
-function getCriteriaTableCsvText_() {
-  return (
-"LevelID,CriterionID,Points,Type,Description,Notes,Teacher Notes\n" +
-"Lesson-03-Level-08,ellipses_present,1,llm_check,\"The four orange ellipses are present in a 2x2 grid with 50 pixel spacing. Count it as OK if each ellipse is drawn while the current fill is orange (literal \"\"orange\"\" or a variable set to \"\"orange\"\").\",,\n" +
-"Lesson-03-Level-08,purple_rect_after_fill,4,llm_check,\"A rectangle is drawn after a call that sets fill to purple (either the literal \"\"purple\"\" or a variable assigned \"\"purple\"\"). The rectangle call may be rect(x,y) or rect(x,y,width,height); rectangle x and y coordinates must be within 10 pixels of the coordinates of the first ellipse (the ellipse in the top-left corner of the 2x2 grid)\",,\n" +
-"Lesson-03-Level-08,rect_after_ellipses,4,llm_check,The (purple) rectangle's draw call appears later in the code than the four orange ellipse calls (so it is on top by draw order). It does not have to be the last shape in the program.,,\n" +
-"Lesson-03-Level-08,one_rect_present,1,llm_check,There is exactly one rectangle present (a single call of the rect() function),,\n" +
-"Lesson-04-Level-08,cloud_wider_than_tall,9,llm_check,\"After setting fill(\"\"white\"\") for the cloud, the cloud ellipse's width is greater than its height (any numeric values OK as long as clearly wider).\",,\n" +
-"Lesson-04-Level-08,no_old_tall_cloud,1,llm_check,\"The original tall cloud ellipse at (150,100,100,200) is not left unchanged.\",,\n" +
-"Lesson-05-Level-07,left_uses_eyeSize,1,llm_check,The left eye draws an ellipse whose width and height are controlled by the variable eyeSize (not numeric literals).,,\n" +
-"Lesson-05-Level-07,right_uses_eyeSize,8,llm_check,The right eye draws an ellipse whose width and height are controlled by the variable eyeSize (not numeric literals).,,\n" +
-"Lesson-05-Level-07,eyeSize_declared,1,llm_check,The program declares a variable named eyeSize and assigns it a number.,,\n" +
-"Lesson-05-Level-07,pupil_bonus_scale,1,llm_check,The eyes contain pupils that consist of a second pair of ellipses is drawn in the same location as the eyes. The width and height of these pupil ellipses are always smaller than the eyes (either by dividing eyeSize by a number greater than 1 or multiplying eyeSize by a number less than 1). ,,\n" +
-"Lesson-05-Level-07,pupil_bonus_fill,1,llm_check,The pupil ellipses (the smaller ones drawn in the same location as the eyes) have a fill color different from the eyes.,,\n" +
-"Lesson-06-Level-07,at_least_3_new_circles,2,llm_check,The program draws at least six circles total (ellipse calls where width == height). This implies the student added at least three new circles beyond the original three.,,\n" +
-"Lesson-06-Level-07,all_unique_colors,2,llm_check,\"All circles (the original three plus the new three that the student added) have distinct fill colors. Accept named colors (e.g., \"\"green\"\") or color codes (e.g., \"\"#00ff00\"\", rgb(), hsl()).\",,\n" +
-"Lesson-06-Level-07,new_circles_random_y,3,llm_check,\"For every added circle, the ellipse's Y coordinate is controlled by randomNumber(...).  Matching the numeric range of 190\u2013210 is ideal, but credit should be awarded as long as the low value is not less than180 and the high value is not greater than 220.\",,\n" +
-"Lesson-06-Level-07,new_circles_correct_x,3,llm_check,\"Each added circle is exactly 40 pixels to the right of the previous one. The proper x-coordinates of all circles, from left to right, should be: 100, 140, 180, 220, 260, 300. If additional circles are optionally added, the pattern should continue (340, 380, 420, etc.)\",,\n" +
-"Lesson-08-Level-10,at_least_2_sprites,4,llm_check,At least two sprites are present in the program.,,\n" +
-"Lesson-08-Level-10,different_locations,2,llm_check,The sprites are in different locations (they don't have the exact same x and y coordinates).,,\n" +
-"Lesson-08-Level-10,sprite_animations,4,llm_check,All sprites have been assigned an animation using the sprite.setAnimation() method. The animation name (the string parameter used with the setAnimation method) should be different for each sprite.,,\n" +
-"Lesson-09-Level-05,burger_size,4,llm_check,burger sprite has been assigned a .scale property value of less than 1,,\n" +
-"Lesson-09-Level-05,fries_size,3,llm_check,fries sprite has been assigned a .scale property value of less than 1,,\n" +
-"Lesson-09-Level-05,dessert_size,3,llm_check,dessert sprite has been assigned a .scale property value of less than 1,,\n" +
-"Lesson-10-Level-05,two_texts,5,llm_check,\"The program draws at least two separate text elements using text(string, x, y), and each string is non-empty. Positions/colors are flexible.\",,\n" +
-"Lesson-10-Level-05,two_positions,5,llm_check,The two text elements appear at different positions (they don't have the same x / y coordinates).,,\n" +
-"Lesson-10-Level-05,text_stroke,2,llm_check,\"At least one text element is rendered in a high-contrast outlined style: either fill set to black with stroke set to white OR fill set to white with stroke set to black. Accept any equivalent color notation (e.g., \"\"black\"\"/\"\"white\"\", #000/#fff, #000000/#ffffff, rgb(0,0,0)/rgb(255,255,255), case-insensitive). The stroke/fill must be in effect when text(...) is drawn; strokeWeight \u2265 1 may be explicit or default.\",,\n" +
-"Lesson-12-Level-07,has_draw_loop,3,llm_check,The program defines a draw() function that runs continuously.,,\n" +
-"Lesson-12-Level-07,salt_y_randomized,3,llm_check,\"Inside draw(), the salt sprite's Y position is randomized each frame (e.g., salt.y = randomNumber(...)). Any numeric range is fine.\",,\n" +
-"Lesson-12-Level-07,drawSprites_in_draw,2,llm_check,drawSprites() is called within draw() (not only once before the loop).,,\n" +
-"Lesson-12-Level-07,background_in_draw,2,llm_check,background(...) is called within draw() so the screen is cleared each frame (no trails).,,\n" +
-"Lesson-13-Level-07,all_fish_moving,4,llm_check,\"All three sprites (orangeFish, blueFish, greenFish) are moving (their x positions are changing over time within the draw() function)\",,\n" +
-"Lesson-13-Level-07,fish_different_speeds,4,llm_check,\"The three sprites (orangeFish, blueFish, greenFish) are all moving at different speeds (their x positions are changing by different values within the draw() function)\",,\n" +
-"Lesson-13-Level-07,blue_fish_faster,1,llm_check,The blueFish sprite is moving faster than the other two fish (its x position is changing more per frame than the other two),,\n" +
-"Lesson-13-Level-07,green_fish_slower,1,llm_check,The greenFish sprite is moving slower than the other two fish (its x position is changing less per frame than the other two),,\n" +
-"Lesson-15-Level-07,dinosaur_transforms,10,llm_check,\"There is an if-statement that checks to see whether the y position of the dinosaur sprite is less than a certain value (any number between 50 and 300 is acceptable), and if so, uses dinosaur.setAnimation(...) to change the dinosaur's animation\",,\n" +
-"Lesson-16-Level-06,flyer_movement_left,2.5,llm_check,\"There is an if-statement that checks to see whether the left arrow is being pressed (the letter 'a' is also acceptable) and if so, moves the sprite to the left by reducing its x position property. The if-statements can appear in any order (ignore all comments that indicate where each if-statement should appear)\",,\n" +
-"Lesson-16-Level-06,flyer_movement_right,2.5,llm_check,\"There is an if-statement that checks to see whether the right arrow is being pressed (the letter 'd' is also acceptable) and if so, moves the sprite to the right by increasing its x position property. The if-statements can appear in any order (ignore all comments that indicate where each if-statement should appear)\",,\n" +
-"Lesson-16-Level-06,flyer_movement_up,2.5,llm_check,\"There is an if-statement that checks to see whether the up arrow is being pressed (the letter 'w' is also acceptable) and if so, moves the sprite up by reducing its y position property. The if-statements can appear in any order (ignore all comments that indicate where each if-statement should appear)\",,\n" +
-"Lesson-16-Level-06,flyer_movement_down,2.5,llm_check,\"There is an if-statement that checks to see whether the down arrow is being pressed (the letter 's' is also acceptable) and if so, moves the sprite down by increasing its y position property. The if-statements can appear in any order (ignore all comments that indicate where each if-statement should appear)\",,\n" +
-"Lesson-17-Level-07,shake_when_clicking,4,llm_check,The creature only shakes while the mouse is being pressed (the line of code that randomizes the rotation property of the creature sprite should be inside of an if (mouseDown(...) conditional statement).,,\n" +
-"Lesson-17-Level-07,text_in_else_statement,4,llm_check,\"The text function that writes \"\"Press the mouse to shake the creature.\"\" to the screen runs only while the mouse is NOT being pressed (the text function should be placed in an else statement that runs when mouseDown(...) returns false)\",,\n" +
-"Lesson-17-Level-07,drawSprites_first,2,llm_check,The drawSprites() function must be called in the draw() loop BEFORE the if-else statement (otherwise the sprite background will cover the text and you won't be able to see it),,\n" +
-"Lesson-19-Level-09,fish_starts_with_key,2,llm_check,\"When the right arrow key is pressed, the fish starts moving to the right (there is an if-statement with keyWentDown(...) that sets fish.velocityX to a positive number. It's ok if the code responds to the left arrow key instead, or if both options are present.\",,\n" +
-"Lesson-19-Level-09,fish_moves_right_to_left,3,llm_check,\"When the fish reaches the right side of the screen, it starts moving left (there is an if-statement that checks whether fish.x is greater than 400, and if so, sets fish.velocityX to a negative number)\",,\n" +
-"Lesson-19-Level-09,fish_moves_left_to_right,3,llm_check,\"When the fish reaches the left side of the screen, it starts moving right (there is an if-statement that checks whether fish.x is less than 0, and if so, sets fish.velocityX to a positive number)\",,\n" +
-"Lesson-19-Level-09,fish_faces_move_dir,2,llm_check,\"The fish is always facing the direction that it's swimming (when fish.velocityX changes to a negative number, the fish's animation is set to \"\"fishL\"\", and when fish.velocityX changes to a positive number, the fish's animation is set to \"\"fishR\"\")\",,\n" +
-"Lesson-20-Level-07,horse_changes_to_unicorn,10,llm_check,\"When the rainbow sprite collides with the horse sprite, the horse's animation changes to a unicorn.\",,\n" +
-"Lesson-21-Side-Scroller,background_in_draw,3,llm_check,\"Game has a background. This can be either a solid color using the background() function OR a sprite with a full-screen animation image assigned that is created before all others. If a sprite background is used, the background() function does NOT need to be present to receive credit.\",,\n" +
-"Lesson-21-Side-Scroller,player_sprite,5,llm_check,\"Game has a player sprite. Ideally, the sprite is named 'player', but it may be called something else (e.g.: frog, alien, etc.)\",,\n" +
-"Lesson-21-Side-Scroller,player_jump,4,llm_check,\"This is a jump button that cause the player to move upwards. Button can be up-arrow, spacebar, or w.\",,\n" +
-"Lesson-21-Side-Scroller,player_ceiling,3,llm_check,The player sprite does not fly off of the top of the screen,,\n" +
-"Lesson-21-Side-Scroller,player_floor,3,llm_check,The player sprite does not fall off of the bottom of the screen,,\n" +
-"Lesson-21-Side-Scroller,obstacle_sprite,2,llm_check,\"Game has an obstacle sprite. Ideally, the sprite is named 'obstacle', but it may be called something else (e.g.: mushroom, spike, enemy, etc.)\",,\n" +
-"Lesson-21-Side-Scroller,obstacle_movement,2,llm_check,\"The obstacle sprite has a negative velocityX value, causing it to constantly move from right to left\",,\n" +
-"Lesson-21-Side-Scroller,obstacle_looping,2,llm_check,\"When the obstacle sprite reaches the left edge of the screen, it jumps back to the right edge of the screen, causing it to \"\"loop\"\" indefinitely\",,\n" +
-"Lesson-21-Side-Scroller,obstacle_collision,2,llm_check,\"When the player touches the obstacle, the health variable goes down\",,\n" +
-"Lesson-21-Side-Scroller,target_sprite,2,llm_check,\"Game has a collectible item sprite. Ideally, the sprite is named 'target', but it may be called something else (e.g.: fly, coin, etc.)\",,\n" +
-"Lesson-21-Side-Scroller,target_sprite_movement,2,llm_check,\"The target sprite has a negative velocityX value, causing it to constantly move from right to left\",,\n" +
-"Lesson-21-Side-Scroller,target_looping,2,llm_check,\"When the target sprite reaches the left edge of the screen, it jumps back to the right edge of the screen, causing it to \"\"loop\"\" indefinitely\",,\n" +
-"Lesson-21-Side-Scroller,target_collision,2,llm_check,\"When the player touches the target, the score variable goes up\",,\n" +
-"Lesson-21-Side-Scroller,score_display,2,llm_check,There is a score-counter displayed somewhere on the screen that properly displays the value of the 'score' variable,,\n" +
-"Lesson-21-Side-Scroller,health_display,2,llm_check,There is a health-counter displayed somewhere on the screen that properly displays the value of the 'health' variable,,\n" +
-"Lesson-21-Side-Scroller,game_over,2,llm_check,\"When the 'health' variable reaches 0, a Game Over message is displayed. This can be either a background() function with a text() function message, or a sprite-based image\",,\n" +
-"Lesson-22-Level-06,rocks_falls_back_down,10,llm_check,\"The rock, which is initially moving upward, slows its ascent and then falls back down. This is accomplished by increasing rock.velocityY each frame.\",,\n"
-  );
 }

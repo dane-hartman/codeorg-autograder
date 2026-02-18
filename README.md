@@ -30,11 +30,21 @@ This creates:
 | Sheet | Purpose |
 |---|---|
 | **Submissions** | All student submissions and grades (one row per submission) |
-| **Levels** | 16 Game Lab levels with Code.org links — enable/disable, set model overrides |
-| **Criteria** | 61 rubric criteria (auto-populated from the built-in CSV) |
+| **Levels** | Game Lab levels with Code.org links — enable/disable, set model overrides |
+| **Criteria** | Empty rubric sheet (you'll import a CSV next) |
 | **Grade View P#** | One per period — read-only views sorted by level then last name |
 
-### 3. Set your API Key
+### 3. Import Criteria
+
+1. Switch to the **Criteria** sheet tab
+2. **File → Import → Upload** → pick a criteria CSV from the `criteria/` folder in this repo (e.g., `CSD-Unit3-Interactive-Animations-and-Games.csv`)
+3. Set **Import location** to **"Replace current sheet"** and **Separator type** to **"Detect automatically"**
+4. Click **Import data**
+5. Run **Autograder → Sync Levels from Criteria** — this populates the Levels sheet from the LevelIDs in your criteria
+
+> 💡 To switch to a different set of criteria later, just import a new CSV into the Criteria sheet and run Sync Levels again. Your Submissions and Grade Views are never affected.
+
+### 4. Set your API Key
 
 - Go to **Extensions → Apps Script → ⚙️ Project Settings → Script Properties**
 - Click **Add script property**
@@ -45,13 +55,13 @@ This creates:
 > - `LLM_PROVIDER` = `openai`
 > - `OPENAI_API_KEY` = your OpenAI key
 
-### 4. Test your connection
+### 5. Test your connection
 
 - Click **Autograder → Test API Connection**
 - This runs two tests: a basic connectivity check and a structured JSON grading test
 - You should see ✅ for both
 
-### 5. Create & Link a Google Form
+### 6. Create & Link a Google Form
 
 Create a Google Form with these fields:
 
@@ -88,16 +98,18 @@ Finally, set up the auto-grade trigger:
 
 All menu actions operate on the **Submissions** sheet — never on Form Responses directly.
 
-| Menu Item | What it does |
-|---|---|
-| **Initial Setup…** | Creates/configures all sheets (additive — won't overwrite existing) |
-| **Grade New Submissions** | Imports any new form responses into Submissions, then grades all ungraded rows |
-| **Re-grade Selected Rows** | Re-grades only the rows you highlight in Submissions (e.g., after editing criteria) |
-| **Re-grade All Rows…** | Re-grades every submission (slow, uses API credits) |
-| **Grade & Email All New** | Imports, grades, and emails results for all un-emailed students in one step |
-| **Email Selected Rows** | Sends result emails for rows you highlight in Submissions |
-| **Test API Connection** | Verifies API key and structured JSON grading in one combined test |
-| **Help / Setup Guide** | Opens the in-app help dialog |
+| Menu Item | What it does | Use this when… |
+|---|---|---|
+| **Initial Setup…** | Creates Submissions, Levels, Criteria, and Grade View sheets (additive — won't overwrite existing) | First-time setup, or adding a new period mid-year |
+| ↳ *Reset Everything* | Deletes ALL autograder sheets and data (inside the Setup dialog) | Starting a fresh semester, or something is badly broken |
+| **Grade New Submissions** | Imports any new form responses into Submissions, then grades all ungraded rows | Daily workflow — checking in on student progress |
+| **Re-grade Selected Rows** | Re-grades only the rows you highlight in Submissions | You edited criteria and want to test the change on a few rows |
+| **Re-grade All Rows…** | Re-grades every submission (slow, uses API credits) | You changed criteria and want to recalculate all scores |
+| **Grade & Email All New** | Imports, grades, and emails results for all un-emailed students in one step | Batch grading at the end of a class or day |
+| **Email Selected Rows** | Sends result emails for rows you highlight in Submissions | Re-sending to specific students, or sending after manual review |
+| **Sync Levels from Criteria** | Rebuilds the Levels sheet from LevelIDs found in the Criteria sheet. Preserves existing Enabled/Model settings. | You imported a new/updated criteria CSV and need the Levels sheet to match |
+| **Test API Connection** | Verifies API key and structured JSON grading in one combined test | After initial setup, or when troubleshooting |
+| **Help / Setup Guide** | Opens the in-app help dialog | Any time you need a quick reference |
 
 ---
 
@@ -135,7 +147,7 @@ Lists all 16 Game Lab levels with direct links to Code.org. You can:
 
 ### Criteria
 
-The rubric. 61 rows across 16 levels. Auto-populated from the built-in CSV. You can edit descriptions or point values to customize grading.
+The rubric. Imported from a CSV file (see `criteria/` folder). You can edit descriptions or point values directly in the sheet to customize grading. To load a completely different rubric, import a new CSV (File → Import → "Replace current sheet") and run **Sync Levels from Criteria**.
 
 ---
 
@@ -191,19 +203,22 @@ In the **Levels** sheet, the **Model** column lets you override the default mode
 7. LLM returns JSON with pass/fail for each criterion
 8. Score is calculated and written to the row
 9. Result is cached for 6 hours
-10. A results email is sent to the student
+10. A results email is sent to the student (rows with `Status = Error` are skipped — see below)
 
 **Grade New Submissions** automatically imports any missed form responses before grading, so it works as both a catch-up tool and a manual grade trigger.
 
+### Rate Limit Handling
+
+The free Gemini API tier has per-minute rate limits. When multiple students submit at the same time, some requests may get a `429 Too Many Requests` response. The autograder handles this automatically:
+
+- All LLM API calls use **exponential backoff** — on a 429 or 503, it waits ~2s, then ~4s, ~8s, ~16s (with jitter) before retrying, up to 4 attempts.
+- Total max wait is ~30 seconds per request, well within Apps Script's 6-minute execution limit.
+- If retries are exhausted, the row is marked `Status = Error` with the error message. **Students will not receive an email for Error rows** — this prevents sending confusing error text to students. You can re-grade those rows later with **Re-grade Selected Rows**.
+- The `Error` email guard applies to all automatic flows (`onFormSubmit`, `Grade & Email All New`). If you manually run **Email Selected Rows**, it will send to all selected rows regardless of status.
+
 ### Criterion Types
 
-| Type | How it works |
-|---|---|
-| `llm_check` | Sent to the LLM for evaluation (the majority of criteria) |
-| `code_nonempty` | Local check: source code is ≥ 10 characters |
-| `contains` | Local check: source contains a specific string |
-| `regex_present` | Local check: source matches a regex pattern |
-| `regex_absent` | Local check: source does NOT match a regex pattern |
+All criteria use `llm_check` — each criterion is sent to the LLM along with the student's source code, and the LLM returns pass/fail with a reason.
 
 ---
 
@@ -214,8 +229,9 @@ In the **Levels** sheet, the **Model** column lets you override the default mode
 | **"Missing GEMINI_API_KEY"** | Set the script property in Extensions → Apps Script → ⚙️ Project Settings → Script Properties |
 | **"Invalid share link"** | Student's URL doesn't match `studio.code.org/projects/gamelab/...` — have them re-copy the share link |
 | **"Level disabled/unknown"** | The LevelID doesn't match any enabled level in the Levels sheet — check for typos |
+| **Rows showing `Error` status** | Usually a rate limit (429) that exhausted retries. Select the Error rows and run **Re-grade Selected Rows** — the retry logic will handle the backoff. |
 | **Submissions aren't auto-importing** | Verify the `onFormSubmit` trigger is set up (Extensions → Apps Script → Triggers). Use **Grade New Submissions** to catch up. |
-| **Students not receiving emails** | Check that the Email column has valid addresses and EmailedAt is blank. Gmail has daily sending limits (~100/day consumer, ~1,500/day Workspace). |
+| **Students not receiving emails** | Check that the Email column has valid addresses and EmailedAt is blank. Rows with `Status = Error` are intentionally skipped to avoid emailing error text to students. Gmail has daily sending limits (~100/day consumer, ~1,500/day Workspace). |
 | **"Please switch to the Submissions sheet"** | Selection-based actions (Re-grade Selected, Email Selected) require you to be on the Submissions sheet with rows highlighted |
 
 ---
@@ -225,8 +241,10 @@ In the **Levels** sheet, the **Model** column lets you override the default mode
 ```
 game-lab-autograder/
 ├── Code.gs                  # The complete Apps Script — paste into your spreadsheet
-├── criteria-table.csv       # Authoritative rubric data (16 levels, 61 criteria)
+├── criteria/                # Rubric CSV files (import into the Criteria sheet)
+│   └── CSD-Unit3-Interactive-Animations-and-Games.csv
 ├── README.md                # This file
+├── CONTRIBUTING.md          # Developer & contributor guide
 ├── CHANGELOG.md             # Version history
 ├── PLAN.md                  # Architecture & design decisions (internal)
 ├── LICENSE                  # MIT License
