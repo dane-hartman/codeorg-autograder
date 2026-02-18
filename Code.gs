@@ -54,15 +54,13 @@ function onOpen() {
     .addItem('Initial Setup\u2026',         'showSetupDialog')
     .addSeparator()
     .addItem('Grade New Submissions',        'gradeNewRows')
-    .addItem('Grade Selected Rows',          'gradeSelectedRows')
+    .addItem('Re-grade Selected Rows',       'gradeSelectedRows')
     .addItem('Re-grade All Rows\u2026',      'gradeAllRows')
     .addSeparator()
+    .addItem('Grade & Email All New',        'gradeAndEmailAllNew')
     .addItem('Email Selected Rows',          'emailSelectedRows')
-    .addItem('Sync from Form Responses',     'syncFromFormResponses')
-    .addItem('Sync, Grade & Email',          'syncGradeAndEmail')
     .addSeparator()
-    .addItem('Test API Connection',          'diagnosticsTestLLM')
-    .addItem('Test Structured JSON',         'diagnosticsTestLLMStructured')
+    .addItem('Test API Connection',          'testAPIConnection')
     .addSeparator()
     .addItem('Help / Setup Guide',           'showHelp')
     .addToUi();
@@ -97,48 +95,58 @@ function buildSetupHtml_(existingPeriods) {
     var label    = exists ? 'Period ' + p + ' \u2713' : 'Period ' + p;
     var style    = exists ? 'color:#888;' : '';
     checkboxes +=
-      '<label style="display:inline-block;width:130px;margin:4px 0;' + style + '">' +
+      '<label style="margin:4px 0;' + style + '">' +
       '<input type="checkbox" value="' + p + '"' + disabled + checked + '> ' + label +
       '</label>';
-    if (p % 4 === 0) checkboxes += '<br>';
   }
 
   return '' +
     '<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.5;">' +
     '<p style="margin:0 0 12px 0;">Select class periods to create Grade View sheets for:</p>' +
-    '<div style="margin:0 0 16px 4px;">' + checkboxes + '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px 0;margin:0 0 16px 4px;">' + checkboxes + '</div>' +
     '<p style="margin:0 0 8px 0;color:#666;font-size:11px;">' +
     'Periods with \u2713 already exist and will not be modified.</p>' +
     '<div style="display:flex;gap:8px;margin-top:12px;">' +
-    '<button onclick="doCreate()" style="padding:8px 20px;font-size:13px;cursor:pointer;' +
+    '<button id="btnCreate" onclick="doCreate()" style="padding:8px 20px;font-size:13px;cursor:pointer;' +
     'background:#4285f4;color:#fff;border:none;border-radius:4px;">Create Sheets</button>' +
-    '<button onclick="doReset()" style="padding:8px 20px;font-size:13px;cursor:pointer;' +
+    '<button id="btnReset" onclick="doReset()" style="padding:8px 20px;font-size:13px;cursor:pointer;' +
     'background:#ea4335;color:#fff;border:none;border-radius:4px;">Reset Everything</button>' +
-    '<button onclick="google.script.host.close()" style="padding:8px 20px;font-size:13px;' +
+    '<button id="btnCancel" onclick="google.script.host.close()" style="padding:8px 20px;font-size:13px;' +
     'cursor:pointer;border:1px solid #ccc;border-radius:4px;background:#fff;">Cancel</button>' +
     '</div>' +
+    '<div id="status" style="margin-top:10px;color:#1a73e8;font-size:12px;min-height:18px;"></div>' +
     '</div>' +
     '<script>' +
+    'function setWorking(msg){' +
+    '  document.querySelectorAll("button").forEach(function(b){b.disabled=true;b.style.opacity="0.6";b.style.cursor="wait";});' +
+    '  document.getElementById("status").textContent=msg||"Working\u2026";' +
+    '}' +
+    'function setReady(){' +
+    '  document.querySelectorAll("button").forEach(function(b){b.disabled=false;b.style.opacity="1";b.style.cursor="pointer";});' +
+    '  document.getElementById("status").textContent="";' +
+    '}' +
     'function getChecked(){' +
     '  var cbs=document.querySelectorAll("input[type=checkbox]:checked:not(:disabled)");' +
     '  var arr=[];cbs.forEach(function(cb){arr.push(parseInt(cb.value));});return arr;' +
     '}' +
     'function doCreate(){' +
     '  var periods=getChecked();' +
+    '  setWorking("\u23F3 Creating sheets\u2026 please wait.");' +
     '  google.script.run.withSuccessHandler(function(msg){' +
     '    alert(msg);google.script.host.close();' +
     '  }).withFailureHandler(function(e){' +
-    '    alert("Error: "+e.message);' +
+    '    setReady();alert("Error: "+e.message);' +
     '  }).createSheetsFromSetup(periods);' +
     '}' +
     'function doReset(){' +
     '  if(!confirm("This will DELETE all Autograder sheets and data.\\n\\nAre you sure?"))return;' +
+    '  setWorking("\u23F3 Resetting\u2026 please wait.");' +
     '  google.script.run.withSuccessHandler(function(){' +
     '    alert("All autograder sheets deleted. Re-opening setup...");' +
     '    google.script.host.close();' +
     '    google.script.run.showSetupDialog();' +
     '  }).withFailureHandler(function(e){' +
-    '    alert("Error: "+e.message);' +
+    '    setReady();alert("Error: "+e.message);' +
     '  }).resetEverything();' +
     '}' +
     '</script>';
@@ -176,14 +184,13 @@ function createSheetsFromSetup(newPeriods) {
   if (!lev) {
     lev = ss.insertSheet(SHEET_LEVELS);
     lev.clear();
-    var levHeaders = ['LevelID', 'LevelName', 'Enabled', 'Model'];
+    var levHeaders = ['LevelID', 'LevelURL', 'Enabled', 'Model'];
     lev.getRange(1, 1, 1, levHeaders.length).setValues([levHeaders]).setFontWeight('bold');
 
     var rubric = parseCriteriaTableCsv_();
     var levelIds = Object.keys(rubric.byLevel).sort();
     var levelRows = levelIds.map(function(id) {
-      var name = id.replace(/-/g, ' ').replace(/Side Scroller/i, 'Side Scroller');
-      return [id, name, true, ''];
+      return [id, levelIdToUrl_(id), true, ''];
     });
     if (levelRows.length) {
       lev.getRange(2, 1, levelRows.length, 4).setValues(levelRows);
@@ -266,7 +273,7 @@ function createSheetsFromSetup(newPeriods) {
     LevelID: 180, ShareURL: 160, ChannelID: 100,
     Score: 55, MaxScore: 75, Status: 80, Notes: 300, EmailedAt: 140
   });
-  setColumnWidths_(lev, { LevelID: 200, LevelName: 200, Enabled: 70, Model: 160 });
+  setColumnWidths_(lev, { LevelID: 200, LevelURL: 400, Enabled: 70, Model: 160 });
   // Criteria — auto-resize is fine for the rubric descriptions
   if (crit) {
     var critCols = crit.getLastColumn();
@@ -377,6 +384,13 @@ function applyStatusFormatting_(sh) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function gradeNewRows() {
+  var ss = SpreadsheetApp.getActive();
+  ss.toast('Checking for new submissions\u2026', 'Autograder', -1);
+
+  // Step 1: Import any new form responses (if a form is linked)
+  var importCount = importFormResponses_();
+
+  // Step 2: Find all ungraded rows
   var sh = getSheet_(SHEET_SUB);
   var data = sh.getDataRange().getValues();
   var head = headers_(data[0]);
@@ -389,16 +403,30 @@ function gradeNewRows() {
       targets.push(r + 1);
     }
   }
-  if (!targets.length) {
-    SpreadsheetApp.getUi().alert('No ungraded submissions found.\n\nAll rows with a LevelID and ShareURL already have a Score.');
+
+  if (!targets.length && !importCount) {
+    ss.toast('', 'Autograder', 1);
+    SpreadsheetApp.getUi().alert('No new submissions found.\n\nAll rows with a LevelID and ShareURL already have a Score.');
     return;
   }
-  gradeRows_(targets);
-  SpreadsheetApp.getUi().alert('Graded ' + targets.length + ' submission(s).');
+
+  // Step 3: Grade them
+  if (targets.length) gradeRows_(targets);
+
+  ss.toast('', 'Autograder', 1);
+  var msg = 'Done!\n\n';
+  if (importCount) msg += '\u2022 Imported ' + importCount + ' new form response(s)\n';
+  msg += '\u2022 Graded ' + targets.length + ' submission(s)';
+  SpreadsheetApp.getUi().alert(msg);
 }
 
 function gradeSelectedRows() {
+  var ss = SpreadsheetApp.getActive();
   var sh = getSheet_(SHEET_SUB);
+  if (ss.getActiveSheet().getName() !== SHEET_SUB) {
+    SpreadsheetApp.getUi().alert('Please switch to the Submissions sheet and select the rows you want to re-grade.');
+    return;
+  }
   var sel = sh.getActiveRange();
   if (!sel) {
     SpreadsheetApp.getUi().alert('Please select one or more rows in the Submissions sheet first.');
@@ -412,12 +440,15 @@ function gradeSelectedRows() {
     SpreadsheetApp.getUi().alert('No data rows selected (row 1 is the header).');
     return;
   }
+  ss.toast('Re-grading ' + rows.length + ' row(s)\u2026', 'Autograder', -1);
   gradeRows_(rows);
+  ss.toast('', 'Autograder', 1);
   SpreadsheetApp.getUi().alert('Graded ' + rows.length + ' row(s).');
 }
 
 function gradeAllRows() {
   var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActive();
   var res = ui.alert(
     'Re-grade ALL rows?',
     'This will re-grade every submission. It can be slow and may use significant API credits.\n\nContinue?',
@@ -433,7 +464,9 @@ function gradeAllRows() {
     ui.alert('No submissions to grade.');
     return;
   }
+  ss.toast('Re-grading ' + rows.length + ' row(s)\u2026', 'Autograder', -1);
   gradeRows_(rows);
+  ss.toast('', 'Autograder', 1);
   ui.alert('Re-graded ' + rows.length + ' submission(s).');
 }
 
@@ -664,7 +697,7 @@ function geminiGrade_(levelId, src, llmCrits) {
     generationConfig: { temperature: 0, topP: 1 }
   };
 
-  var resp = UrlFetchApp.fetch(url, {
+  var resp = fetchWithRetry_(url, {
     method: 'post', contentType: 'application/json',
     muteHttpExceptions: true, payload: JSON.stringify(body)
   });
@@ -750,7 +783,7 @@ function extractResponsesText_(txt) {
  */
 function callResponsesStructured_(model, key, system, user, schema) {
   function fetchBody(body) {
-    return UrlFetchApp.fetch('https://api.openai.com/v1/responses', {
+    return fetchWithRetry_('https://api.openai.com/v1/responses', {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true,
       headers: { Authorization: 'Bearer ' + key },
       payload: JSON.stringify(body)
@@ -823,21 +856,29 @@ function fetchGameLabSource_(channelId) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function emailSelectedRows() {
-  var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_SUB);
+  var ss = SpreadsheetApp.getActive();
+  var sh = ss.getSheetByName(SHEET_SUB);
   if (!sh) { SpreadsheetApp.getUi().alert('Submissions sheet not found. Run Initial Setup first.'); return; }
+  if (ss.getActiveSheet().getName() !== SHEET_SUB) {
+    SpreadsheetApp.getUi().alert('Please switch to the Submissions sheet and select the rows you want to email.');
+    return;
+  }
   var sel = sh.getActiveRange();
   if (!sel) { SpreadsheetApp.getUi().alert('Please select rows in the Submissions sheet.'); return; }
+  ss.toast('Sending emails\u2026', 'Autograder', -1);
   var count = 0;
   for (var r = sel.getRow(); r < sel.getRow() + sel.getNumRows(); r++) {
     if (r >= 2 && sendEmailForRow_(r)) count++;
   }
+  ss.toast('', 'Autograder', 1);
   SpreadsheetApp.getUi().alert('Sent ' + count + ' email(s).');
 }
 
 /**
  * Sends a results email for a single row. Returns true if sent, false if skipped.
+ * Skips rows with Status "Error" (e.g., API failures) unless force=true.
  */
-function sendEmailForRow_(rowNum) {
+function sendEmailForRow_(rowNum, force) {
   var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_SUB);
   if (!sh) return false;
   var data = sh.getDataRange().getValues();
@@ -851,13 +892,16 @@ function sendEmailForRow_(rowNum) {
   if (!email) return false;
   if (row[head.EmailedAt]) return false; // already emailed
 
+  // Don't email students about internal errors (429, timeouts, etc.)
+  var status = String(row[head.Status] || '').trim();
+  if (!force && status === 'Error') return false;
+
   var first  = row[head.First] || '';
   var last   = row[head.Last]  || '';
   var level  = row[head.LevelID] || '';
   var url    = row[head.ShareURL] || '';
   var score  = row[head.Score]    || 0;
   var max    = row[head.MaxScore] || 0;
-  var status = row[head.Status]   || '';
   var notes  = String(row[head.Notes] || '');
   var who    = [first, last].filter(Boolean).join(' ').trim() || 'Student';
 
@@ -948,35 +992,22 @@ function onFormSubmit(e) {
 
 // ── Sync (Backfill) ──
 
-function syncFromFormResponses() {
-  syncCore_(false);
-}
-
-function syncGradeAndEmail() {
-  syncCore_(true);
-}
-
-function syncCore_(sendEmails) {
+/**
+ * Imports new form responses into Submissions (de-duplicated). No grading or emailing.
+ * Returns the number of new rows imported. Returns 0 if no form responses sheet found.
+ */
+function importFormResponses_() {
   var ss = SpreadsheetApp.getActive();
-  var subSh = getSheet_(SHEET_SUB);
+  var subSh = ss.getSheetByName(SHEET_SUB);
+  if (!subSh) return 0;
   var subHeaders = subSh.getRange(1, 1, 1, subSh.getLastColumn()).getValues()[0];
   var subMap = headers_(subHeaders);
 
   var srcSh = findFormResponsesSheet_();
-  if (!srcSh) {
-    SpreadsheetApp.getUi().alert(
-      'No "Form Responses" sheet found.\n\n' +
-      'Make sure your Google Form is linked to this spreadsheet.\n' +
-      'See Help / Setup Guide for instructions.'
-    );
-    return;
-  }
+  if (!srcSh) return 0;
 
   var srcValues = srcSh.getDataRange().getValues();
-  if (srcValues.length <= 1) {
-    SpreadsheetApp.getUi().alert('No form responses to sync (the form responses sheet is empty).');
-    return;
-  }
+  if (srcValues.length <= 1) return 0;
   var srcHead = srcValues[0];
   var srcMap = headersSmart_(srcHead);
 
@@ -990,7 +1021,7 @@ function syncCore_(sendEmails) {
     existing[[ts, em, lvl].join('|')] = true;
   }
 
-  var appendedRows = [];
+  var count = 0;
   for (var r = 1; r < srcValues.length; r++) {
     var row = srcValues[r];
     var tsVal  = (srcMap.Timestamp !== undefined) ? row[srcMap.Timestamp] : new Date();
@@ -1018,21 +1049,56 @@ function syncCore_(sendEmails) {
     if (subMap.ShareURL  !== undefined) out[subMap.ShareURL]  = share;
 
     subSh.appendRow(out);
-    appendedRows.push(subSh.getLastRow());
+    count++;
     existing[key] = true;
   }
 
-  if (appendedRows.length) {
-    gradeRows_(appendedRows);
-    if (sendEmails) {
-      appendedRows.forEach(function(r) { try { sendEmailForRow_(r); } catch (_) {} });
+  return count;
+}
+
+/**
+ * One-click workflow: import form responses, grade all ungraded, email all un-emailed.
+ */
+function gradeAndEmailAllNew() {
+  var ss = SpreadsheetApp.getActive();
+  ss.toast('Syncing, grading & emailing\u2026', 'Autograder', -1);
+
+  // Step 1: Import any new form responses
+  var importCount = importFormResponses_();
+
+  // Step 2: Grade all ungraded rows
+  var sh = getSheet_(SHEET_SUB);
+  var data = sh.getDataRange().getValues();
+  var head = headers_(data[0]);
+  var targets = [];
+  for (var r = 1; r < data.length; r++) {
+    var score = data[r][head.Score];
+    var url   = data[r][head.ShareURL];
+    var lvl   = data[r][head.LevelID];
+    if (url && lvl && (score === '' || score === null || score === undefined)) {
+      targets.push(r + 1);
+    }
+  }
+  if (targets.length) gradeRows_(targets);
+
+  // Step 3: Email all un-emailed OK rows
+  data = sh.getDataRange().getValues();
+  var emailCount = 0;
+  for (var r = 1; r < data.length; r++) {
+    var status  = String(data[r][head.Status] || '');
+    var emailed = data[r][head.EmailedAt];
+    var email   = String(data[r][head.Email] || '').trim();
+    if (status === 'OK' && !emailed && email) {
+      try { if (sendEmailForRow_(r + 1)) emailCount++; } catch (_) {}
     }
   }
 
-  SpreadsheetApp.getUi().alert(
-    'Sync complete: ' + appendedRows.length + ' new submission(s) imported from "' + srcSh.getName() + '".' +
-    (appendedRows.length === 0 ? '\n\nAll form responses are already in the Submissions sheet.' : '')
-  );
+  ss.toast('', 'Autograder', 1);
+  var msg = 'Done!\n\n';
+  if (importCount) msg += '\u2022 Imported ' + importCount + ' new form response(s)\n';
+  msg += '\u2022 Graded ' + targets.length + ' submission(s)\n';
+  msg += '\u2022 Emailed ' + emailCount + ' student(s)';
+  SpreadsheetApp.getUi().alert(msg);
 }
 
 
@@ -1040,134 +1106,108 @@ function syncCore_(sendEmails) {
 //  9. DIAGNOSTICS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function diagnosticsTestLLM() {
+/**
+ * Combined API test: checks basic connectivity then structured JSON grading.
+ */
+function testAPIConnection() {
   var p = getLLMProvider_();
-  if (p === 'openai') return pingGPT_();
-  return pingGemini_();
-}
+  var ss = SpreadsheetApp.getActive();
+  var ui = SpreadsheetApp.getUi();
+  ss.toast('Testing API connection\u2026', 'Autograder', -1);
 
-function diagnosticsTestLLMStructured() {
-  var p = getLLMProvider_();
-  if (p === 'openai') return pingGPTStructured_();
-  return pingGeminiStructured_();
-}
+  var model = getDefaultModel_();
+  var lines = [];
+  var allOk = true;
 
-function pingGemini_() {
+  // --- Test 1: Basic connectivity ---
   try {
-    var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-    if (!key) { SpreadsheetApp.getUi().alert('\u274C GEMINI_API_KEY is not set.\n\nGo to Extensions \u2192 Apps Script \u2192 Project Settings \u2192 Script Properties and add it.'); return; }
-    var model = getDefaultModel_();
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key);
-    var body = { contents: [{ role: 'user', parts: [{ text: 'Reply with the single word: pong.' }] }], generationConfig: { temperature: 0, topP: 1 } };
-    var resp = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify(body) });
-    var code = resp.getResponseCode();
-    var out  = extractGeminiText_(resp.getContentText());
-    SpreadsheetApp.getUi().alert(
-      (code < 400 ? '\u2705' : '\u274C') + ' Gemini API Test\n\n' +
-      'Model: ' + model + '\nHTTP: ' + code +
-      (out ? '\nResponse: ' + out.substring(0, 200) : '')
-    );
-  } catch (err) {
-    SpreadsheetApp.getUi().alert('\u274C Gemini ping failed: ' + err);
+    var basicOk = false, basicText = '';
+    if (p === 'openai') {
+      var key = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
+      if (!key) throw new Error('OPENAI_API_KEY is not set.\n\nGo to Extensions \u2192 Apps Script \u2192 Project Settings \u2192 Script Properties and add it.');
+      var resp = fetchWithRetry_('https://api.openai.com/v1/responses', {
+        method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+        headers: { Authorization: 'Bearer ' + key },
+        payload: JSON.stringify({ model: model, input: [{ role: 'user', content: 'Reply with the single word: pong.' }] })
+      });
+      basicOk = resp.getResponseCode() < 400;
+      basicText = basicOk ? extractResponsesText_(resp.getContentText()).substring(0, 80).trim() : ('HTTP ' + resp.getResponseCode());
+    } else {
+      var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+      if (!key) throw new Error('GEMINI_API_KEY is not set.\n\nGo to Extensions \u2192 Apps Script \u2192 Project Settings \u2192 Script Properties and add it.');
+      var gUrl = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key);
+      var resp = fetchWithRetry_(gUrl, {
+        method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+        payload: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Reply with the single word: pong.' }] }], generationConfig: { temperature: 0, topP: 1 } })
+      });
+      basicOk = resp.getResponseCode() < 400;
+      basicText = basicOk ? extractGeminiText_(resp.getContentText()).substring(0, 80).trim() : ('HTTP ' + resp.getResponseCode());
+    }
+    if (basicOk) lines.push('\u2705 Connection OK (' + basicText + ')');
+    else { allOk = false; lines.push('\u274C Connection failed: ' + basicText); }
+  } catch (e) {
+    allOk = false; lines.push('\u274C ' + String(e));
   }
-}
 
-function pingGPT_() {
-  try {
-    var key = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
-    if (!key) { SpreadsheetApp.getUi().alert('\u274C OPENAI_API_KEY is not set.\n\nGo to Extensions \u2192 Apps Script \u2192 Project Settings \u2192 Script Properties and add it.'); return; }
-    var model = getDefaultModel_();
-    var body = { model: model, input: [{ role: 'user', content: 'Reply with the single word: pong.' }] };
-    var resp = UrlFetchApp.fetch('https://api.openai.com/v1/responses', {
-      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      headers: { Authorization: 'Bearer ' + key }, payload: JSON.stringify(body)
-    });
-    var code = resp.getResponseCode();
-    var out  = extractResponsesText_(resp.getContentText());
-    SpreadsheetApp.getUi().alert(
-      (code < 400 ? '\u2705' : '\u274C') + ' OpenAI API Test\n\n' +
-      'Model: ' + model + '\nHTTP: ' + code +
-      (out ? '\nResponse: ' + out.substring(0, 200) : '')
-    );
-  } catch (err) {
-    SpreadsheetApp.getUi().alert('\u274C OpenAI ping failed: ' + err);
+  // --- Test 2: Structured JSON grading (only if basic passed) ---
+  if (allOk) {
+    try {
+      var checks = [
+        { id: 'has_purple', description: 'Code sets fill("purple") before drawing a rectangle.' },
+        { id: 'has_draw',   description: 'Code defines a draw() function.' }
+      ];
+      var checkIds = checks.map(function(c) { return c.id; });
+      var system = 'You are a strict autograder. Decide PASS/FAIL per check. Output JSON only.';
+      var user = 'Return ONLY JSON: {"unreadable":boolean,"checks":[{"id":string,"pass":boolean,"reason":string}]}\n\n' +
+        'CHECKS:\n' + checks.map(function(c) { return '- ' + c.id + ': ' + c.description; }).join('\n') +
+        '\n\nCODE:\n```javascript\nfill("purple"); rect(10,10,20,20);\n```';
+
+      var structOk = false, numChecks = 0;
+      if (p === 'openai') {
+        var oaiKey = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
+        var schema = {
+          name: 'autograde_result',
+          schema: {
+            type: 'object', additionalProperties: false,
+            properties: {
+              unreadable: { type: 'boolean' },
+              checks: { type: 'array', items: { type: 'object', additionalProperties: false,
+                required: ['id', 'pass'],
+                properties: { id: { type: 'string' }, pass: { type: 'boolean' }, reason: { type: 'string' } }
+              }}
+            }, required: ['checks']
+          }, strict: true
+        };
+        var result = callResponsesStructured_(model, oaiKey, system, user, schema);
+        var parsed = normalizeAutogradeJson_(result.text, checkIds);
+        structOk = parsed && Array.isArray(parsed.checks) && parsed.checks.length > 0;
+        numChecks = structOk ? parsed.checks.length : 0;
+      } else {
+        var gemKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+        var gemUrl = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(gemKey);
+        var gResp = fetchWithRetry_(gemUrl, {
+          method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+          payload: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: system + '\n\n' + user }] }], generationConfig: { temperature: 0, topP: 1 } })
+        });
+        var gText = extractGeminiText_(gResp.getContentText());
+        var parsed = normalizeAutogradeJson_(gText, checkIds);
+        structOk = parsed && Array.isArray(parsed.checks) && parsed.checks.length > 0;
+        numChecks = structOk ? parsed.checks.length : 0;
+        Logger.log('Structured test raw:\n%s', gText);
+      }
+      if (structOk) lines.push('\u2705 Structured grading OK (' + numChecks + ' checks parsed)');
+      else { allOk = false; lines.push('\u274C Structured grading: could not parse JSON response \u2014 see Logs'); }
+    } catch (e) {
+      allOk = false; lines.push('\u274C Structured grading: ' + String(e));
+    }
   }
-}
 
-function pingGeminiStructured_() {
-  try {
-    var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-    if (!key) { SpreadsheetApp.getUi().alert('\u274C GEMINI_API_KEY is not set.'); return; }
-    var model = getDefaultModel_();
-    var checks = [
-      { id: 'has_purple', description: 'Code sets fill("purple") before drawing a rectangle.' },
-      { id: 'has_draw',   description: 'Code defines a draw() function.' }
-    ];
-    var system = 'You are a strict autograder. Decide PASS/FAIL per check. Output JSON only.';
-    var user = 'Return ONLY JSON: {"unreadable":boolean,"checks":[{"id":string,"pass":boolean,"reason":string}]}\n\n' +
-      'CHECKS:\n' + checks.map(function(c) { return '- ' + c.id + ': ' + c.description; }).join('\n') +
-      '\n\nCODE:\n```javascript\nfill("purple"); rect(10,10,20,20);\n```';
-
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key);
-    var body = { contents: [{ role: 'user', parts: [{ text: system + '\n\n' + user }] }], generationConfig: { temperature: 0, topP: 1 } };
-    var resp = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify(body) });
-    var code = resp.getResponseCode();
-    var text = extractGeminiText_(resp.getContentText());
-    var parsed = normalizeAutogradeJson_(text, checks.map(function(c) { return c.id; }));
-    var ok = parsed && Array.isArray(parsed.checks) && parsed.checks.length;
-    SpreadsheetApp.getUi().alert(
-      (ok ? '\u2705' : '\u274C') + ' Gemini Structured JSON Test\n\n' +
-      'Model: ' + model + '\nHTTP: ' + code +
-      (ok ? '\nParsed ' + parsed.checks.length + ' check(s) successfully' : '\nCould not parse structured JSON \u2014 see Logs')
-    );
-    Logger.log('Structured test raw:\n%s', text);
-  } catch (err) {
-    SpreadsheetApp.getUi().alert('\u274C Structured ping failed: ' + err);
-  }
-}
-
-function pingGPTStructured_() {
-  try {
-    var key = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
-    if (!key) { SpreadsheetApp.getUi().alert('\u274C OPENAI_API_KEY is not set.'); return; }
-    var model = getDefaultModel_();
-    var checks = [
-      { id: 'has_purple', description: 'Code sets fill("purple") before drawing a rectangle.' },
-      { id: 'has_draw',   description: 'Code defines a draw() function.' }
-    ];
-    var system = 'You are a strict autograder. Decide PASS/FAIL per check. Output JSON only per schema.';
-    var user = 'CHECKS:\n' + checks.map(function(c) { return '- ' + c.id + ': ' + c.description; }).join('\n') +
-      '\n\nCODE:\n```javascript\nfill("purple"); rect(10,10,20,20);\n```';
-    var schema = {
-      name: 'autograde_result',
-      schema: {
-        type: 'object', additionalProperties: false,
-        properties: {
-          unreadable: { type: 'boolean' },
-          checks: {
-            type: 'array', items: {
-              type: 'object', additionalProperties: false,
-              required: ['id', 'pass'],
-              properties: { id: { type: 'string' }, pass: { type: 'boolean' }, reason: { type: 'string' } }
-            }
-          }
-        },
-        required: ['checks']
-      },
-      strict: true
-    };
-    var result = callResponsesStructured_(model, key, system, user, schema);
-    var parsed = normalizeAutogradeJson_(result.text, checks.map(function(c) { return c.id; }));
-    var ok = parsed && Array.isArray(parsed.checks) && parsed.checks.length;
-    SpreadsheetApp.getUi().alert(
-      (ok ? '\u2705' : '\u274C') + ' OpenAI Structured JSON Test\n\n' +
-      'Model: ' + (result.usedModel || model) + '\nHTTP: ' + result.code +
-      (ok ? '\nParsed ' + parsed.checks.length + ' check(s) successfully' : '\nCould not parse structured JSON \u2014 see Logs')
-    );
-    Logger.log('Structured test raw:\n%s', result.text);
-  } catch (err) {
-    SpreadsheetApp.getUi().alert('\u274C Structured ping failed: ' + err);
-  }
+  ss.toast('', 'Autograder', 1);
+  ui.alert(
+    (allOk ? '\u2705 All tests passed!' : '\u274C Test failed') + '\n\n' +
+    'Provider: ' + p + '\nModel: ' + model + '\n\n' +
+    lines.join('\n')
+  );
 }
 
 
@@ -1257,6 +1297,20 @@ function getModelForLevel_(levelId) {
       return (head.Model !== undefined ? String(vals[i][head.Model] || '').trim() : '');
     }
   }
+  return '';
+}
+
+/**
+ * Converts a LevelID (e.g. "Lesson-05-Level-07") into the Code.org level URL.
+ * Special case: Lesson-21-Side-Scroller → lessons/21/levels/2
+ */
+function levelIdToUrl_(levelId) {
+  var base = 'https://studio.code.org/courses/csd-2025/units/3/';
+  // Lesson-21-Side-Scroller
+  if (/Lesson-21/i.test(levelId)) return base + 'lessons/21/levels/2';
+  // Standard pattern: Lesson-NN-Level-NN
+  var m = String(levelId).match(/Lesson-(\d+)-Level-(\d+)/i);
+  if (m) return base + 'lessons/' + parseInt(m[1], 10) + '/levels/' + parseInt(m[2], 10);
   return '';
 }
 
@@ -1452,6 +1506,32 @@ function esc_(s) {
   });
 }
 
+// ── HTTP fetch with retry (handles 429 rate limits) ──
+
+/**
+ * Wrapper around UrlFetchApp.fetch that retries on 429 (rate limit) and 503
+ * with exponential backoff. Up to 4 retries (waits ~2s, ~4s, ~8s, ~16s).
+ * Total max wait ≈ 30s, well within Apps Script's 6-minute execution limit.
+ */
+function fetchWithRetry_(url, options) {
+  var MAX_RETRIES = 4;
+  var baseDelay   = 2000; // 2 seconds
+
+  for (var attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    var resp = UrlFetchApp.fetch(url, options);
+    var code = resp.getResponseCode();
+
+    if (code !== 429 && code !== 503) return resp; // success or non-retryable error
+    if (attempt === MAX_RETRIES) return resp;       // out of retries, return last response
+
+    // Exponential backoff with jitter: 2s, 4s, 8s, 16s (±25%)
+    var delay = baseDelay * Math.pow(2, attempt);
+    var jitter = delay * 0.25 * (Math.random() - 0.5); // ±12.5%
+    Utilities.sleep(Math.round(delay + jitter));
+  }
+  return resp; // shouldn't reach here, but just in case
+}
+
 // ── Cache helpers (CacheService, 6-hour TTL) ──
 
 function getGradeCache_(key) {
@@ -1519,11 +1599,11 @@ function showHelp() {
 
     '<h3 style="margin:12px 0 6px 0;font-size:14px;">\uD83D\uDCCB Menu Reference</h3>' +
     '<ul style="margin:0 0 12px 18px;padding:0;">' +
-    '<li><b>Grade New Submissions</b> \u2014 grades rows where Score is blank</li>' +
-    '<li><b>Grade Selected Rows</b> \u2014 re-grades only the rows you highlight</li>' +
-    '<li><b>Re-grade All Rows</b> \u2014 re-grades everything (slow, uses API credits)</li>' +
-    '<li><b>Email Selected Rows</b> \u2014 sends result emails for highlighted rows</li>' +
-    '<li><b>Sync from Form Responses</b> \u2014 imports any submissions that didn\'t auto-import (safety net; rarely needed)</li>' +
+    '<li><b>Grade New Submissions</b> \u2014 imports new form responses (if any), then grades all ungraded rows in Submissions</li>' +
+    '<li><b>Re-grade Selected Rows</b> \u2014 re-grades the rows you highlight in Submissions (e.g., after editing criteria)</li>' +
+    '<li><b>Re-grade All Rows</b> \u2014 re-grades every row in Submissions (slow, uses API credits)</li>' +
+    '<li><b>Grade & Email All New</b> \u2014 imports, grades, and emails results in one step</li>' +
+    '<li><b>Email Selected Rows</b> \u2014 sends result emails for rows you highlight in Submissions</li>' +
     '</ul>' +
 
     '<h3 style="margin:12px 0 6px 0;font-size:14px;">\uD83D\uDCC4 Sheet Reference</h3>' +

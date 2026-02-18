@@ -61,3 +61,7 @@ Lesson-21-Side-Scroller,score_display,2,llm_check,There is a score-counter displ
 Lesson-21-Side-Scroller,health_display,2,llm_check,There is a health-counter displayed somewhere on the screen that properly displays the value of the 'health' variable,,
 Lesson-21-Side-Scroller,game_over,2,llm_check,"When the 'health' variable reaches 0, a Game Over message is displayed. This can be either a background() function with a text() function message, or a sprite-based image",,
 Lesson-22-Level-06,rocks_falls_back_down,10,llm_check,"The rock, which is initially moving upward, slows its ascent and then falls back down. This is accomplished by increasing rock.velocityY each frame.",,
+Lesson-23-Level-07,giraffe_parrot_bounce,2.5,llm_check,"The giraffe and parrot bounce off of each other, both reversing course at equal speed. This can be accomplished using giraffe.bounce(parrot) or parrot.bounce(giraffe)",,
+Lesson-23-Level-07,hippo_push_elephant,2.5,llm_check,The hippo pushes the elephant off the screen. This can be accomplished with hippo.displace(elephant) or with elephant.collide(hippo),,
+Lesson-23-Level-07,monkey_push_rabbit,2.5,llm_check,The monkey pushes the rabbit off the screen. This can be accomplished with monkey.displace(rabbit) or with rabbit.collide(monkey),,
+Lesson-23-Level-07,snake_bounce_off_pig,2.5,llm_check,"The snake bounces off of the pig, the snake reversing course at increased speed. This can be accomplished using snake.bounceOff(pig)",,
